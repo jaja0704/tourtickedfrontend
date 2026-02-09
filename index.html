@@ -1,9 +1,284 @@
-<!doctype html>
-<html>
-    <head>
-        <title>Hello world ! </title>
-    </head>
-    <body>
-           網頁內容11111
-    </body>
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LIFE:LIVE | 演唱會紀錄珍藏</title>
+    <!-- 引入 Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 引入 React & ReactDOM -->
+    <script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+    <!-- 引入 Babel 用於解析 JSX -->
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <!-- 引入 Lucide Icons -->
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;700;900&display=swap');
+        body { 
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; 
+            background-color: #14181c; 
+            color: #9ab;
+            margin: 0;
+        }
+        .form-input { 
+            width: 100%; 
+            background-color: #2c3440; 
+            border: none; 
+            border-radius: 4px; 
+            padding: 10px 12px; 
+            font-size: 14px; 
+            color: white; 
+            outline: none; 
+            transition: box-shadow 0.2s; 
+        }
+        .form-input:focus { box-shadow: 0 0 0 1px rgba(0, 224, 84, 0.5); }
+        .animate-in { animation: animate-in 0.3s ease-out; }
+        @keyframes animate-in { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .scrollbar-hide { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        /* 為了讓 Lucide 在 React 中運作的簡單封裝 */
+        .icon-inline { display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
+    </style>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useEffect, useMemo } = React;
+        
+        // 從 CDN 引入 Firebase 模組
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+        import { getAuth, signInAnonymously, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-auth.js";
+        import { getFirestore, collection, doc, onSnapshot, addDoc, deleteDoc, updateDoc, serverTimestamp, query } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-firestore.js";
+
+        // Firebase 配置 (請確保 projectId 與你的截圖一致)
+        const firebaseConfig = {
+            apiKey: "AIzaSyD0UGzBEuMRpfzuTD0UyT6b5OGvkTuFBPo",
+            authDomain: "life-live-c3811.firebaseapp.com",
+            projectId: "life-live-c3811",
+            storageBucket: "life-live-c3811.firebasestorage.app",
+            messagingSenderId: "564651911259",
+            appId: "1:564651911259:web:38b453973314da9295b77e",
+            measurementId: "G-V3XL4E6H6R"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const db = getFirestore(app);
+        const appId = 'concert-tracker-v1';
+
+        // 簡單的 Icon 元件封裝 (直接用 SVG 或 Lucide class)
+        const Icon = ({ name, size = 16, className = "" }) => (
+            <i data-lucide={name} className={`icon-inline ${className}`} style={{ width: size, height: size }}></i>
+        );
+
+        const App = () => {
+            const [user, setUser] = useState(null);
+            const [concerts, setConcerts] = useState([]);
+            const [isModalOpen, setIsModalOpen] = useState(false);
+            const [searchTerm, setSearchTerm] = useState('');
+            const [loading, setLoading] = useState(true);
+            const [selectedConcert, setSelectedConcert] = useState(null);
+            const [view, setView] = useState('home');
+            const today = new Date().toISOString().split('T')[0];
+
+            const [formData, setFormData] = useState({
+                artist: '', tourName: '', date: '', venue: '', seat: '', price: '', imageUrl: '', status: 'confirmed', setlist: '', spotifyUrl: ''
+            });
+
+            useEffect(() => {
+                const unsubscribeAuth = onAuthStateChanged(auth, (currentUser) => {
+                    if (currentUser) {
+                        setUser(currentUser);
+                    } else {
+                        signInAnonymously(auth).catch(console.error);
+                    }
+                });
+                return () => unsubscribeAuth();
+            }, []);
+
+            useEffect(() => {
+                if (!user) return;
+                const q = collection(db, 'artifacts', appId, 'users', user.uid, 'concerts');
+                const unsubscribe = onSnapshot(q, (snapshot) => {
+                    const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    setConcerts(data);
+                    setLoading(false);
+                    // 刷新 Lucide 圖示
+                    setTimeout(() => lucide.createIcons(), 100);
+                }, () => setLoading(false));
+                return () => unsubscribe();
+            }, [user]);
+
+            const categorized = useMemo(() => {
+                const filtered = concerts.filter(c => 
+                    (c.artist || '').toLowerCase().includes(searchTerm.toLowerCase()) || 
+                    (c.venue || '').toLowerCase().includes(searchTerm.toLowerCase())
+                );
+                return {
+                    upcoming: filtered.filter(c => c.date >= today).sort((a, b) => new Date(a.date) - new Date(b.date)),
+                    past: filtered.filter(c => c.date < today).sort((a, b) => new Date(b.date) - new Date(a.date))
+                };
+            }, [concerts, searchTerm, today]);
+
+            const handleSubmit = async (e) => {
+                e.preventDefault();
+                if (!user) return;
+                await addDoc(collection(db, 'artifacts', appId, 'users', user.uid, 'concerts'), {
+                    ...formData, createdAt: serverTimestamp()
+                });
+                setIsModalOpen(false);
+                setFormData({ artist: '', tourName: '', date: '', venue: '', seat: '', price: '', imageUrl: '', status: 'confirmed', setlist: '', spotifyUrl: '' });
+            };
+
+            const handleToggleStatus = async (concert) => {
+                const newStatus = concert.status === 'pending' ? 'confirmed' : 'pending';
+                await updateDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'concerts', concert.id), {
+                    status: newStatus
+                });
+            };
+
+            const handleDelete = async (id) => {
+                if (!confirm("確定要刪除這場紀錄嗎？")) return;
+                await deleteDoc(doc(db, 'artifacts', appId, 'users', user.uid, 'concerts', id));
+                setSelectedConcert(null);
+            };
+
+            // 渲染列表組件
+            const ConcertGrid = ({ items }) => (
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-6">
+                    {items.map(c => (
+                        <div key={c.id} onClick={() => { setSelectedConcert(c); setTimeout(() => lucide.createIcons(), 100); }} className="group cursor-pointer">
+                            <div className={`aspect-[2/3] bg-[#2c3440] rounded overflow-hidden border-2 transition-all relative ${c.status === 'pending' && c.date >= today ? 'border-amber-500/50' : 'border-transparent group-hover:border-[#00e054]'}`}>
+                                {c.imageUrl ? <img src={c.imageUrl} className="w-full h-full object-cover group-hover:scale-105 transition-transform" /> : <div className="w-full h-full flex items-center justify-center opacity-20">No Image</div>}
+                                {c.status === 'pending' && c.date >= today && (
+                                    <div className="absolute top-2 left-2 bg-amber-500 text-[#14181c] text-[8px] font-black px-1.5 py-0.5 rounded uppercase">Pending</div>
+                                )}
+                            </div>
+                            <div className="mt-2 px-1">
+                                <p className="text-[10px] font-bold text-gray-500">{c.date}</p>
+                                <p className="text-white font-bold truncate text-sm uppercase">{c.artist}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+
+            return (
+                <div className="min-h-screen">
+                    <nav className="bg-[#1b2228] border-b border-black/20 h-16 flex items-center justify-between px-6 sticky top-0 z-40">
+                        <div className="text-white font-black text-2xl flex items-center gap-2 cursor-pointer" onClick={() => setView('home')}>
+                            <span className="bg-[#00e054] text-[#14181c] w-6 h-6 rounded-full flex items-center justify-center">：</span>
+                            <span className="tracking-tighter uppercase">LIFE:LIVE</span>
+                        </div>
+                        <div className="flex gap-4">
+                            <input className="bg-[#2c3440] rounded-full px-4 py-1.5 text-xs text-white outline-none w-32 md:w-48" placeholder="搜尋..." value={searchTerm} onChange={e => setSearchTerm(e.target.value)} />
+                            <button onClick={() => setIsModalOpen(true)} className="bg-[#445566] text-white text-[10px] font-bold px-4 py-2 rounded uppercase tracking-widest">+ 紀錄</button>
+                        </div>
+                    </nav>
+
+                    <main className="max-w-6xl mx-auto p-6 space-y-12">
+                        {loading ? <div className="text-center py-20 animate-pulse uppercase font-bold tracking-widest">載入中 Loading...</div> : (
+                            <>
+                                <section>
+                                    <h2 className="text-white text-xs font-bold uppercase tracking-widest mb-6 border-b border-white/5 pb-2 flex items-center gap-2">
+                                        <Icon name="clock" size={12} className="text-blue-500" /> 即將到來 Upcoming
+                                    </h2>
+                                    {categorized.upcoming.length > 0 ? <ConcertGrid items={categorized.upcoming} /> : <div className="text-center py-10 opacity-30 text-xs uppercase font-bold italic">目前沒有計畫中的演出</div>}
+                                </section>
+
+                                <section>
+                                    <h2 className="text-white text-xs font-bold uppercase tracking-widest mb-6 border-b border-white/5 pb-2 flex items-center gap-2">
+                                        <Icon name="history" size={12} className="text-[#00e054]" /> 過往紀錄 Past
+                                    </h2>
+                                    {categorized.past.length > 0 ? <ConcertGrid items={categorized.past} /> : <div className="text-center py-10 opacity-30 text-xs uppercase font-bold italic">尚無過往演出紀錄</div>}
+                                </section>
+                            </>
+                        )}
+                    </main>
+
+                    {/* 新增 Modal */}
+                    {isModalOpen && (
+                        <div className="fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4 animate-in">
+                            <div className="bg-[#1b2228] w-full max-w-lg p-8 rounded-lg shadow-2xl border border-white/10">
+                                <div className="flex justify-between mb-6">
+                                    <h3 className="text-white font-bold uppercase tracking-widest text-sm">新增演唱會紀錄</h3>
+                                    <button onClick={() => setIsModalOpen(false)} className="text-gray-500 hover:text-white">✕</button>
+                                </div>
+                                <form onSubmit={handleSubmit} className="grid grid-cols-2 gap-4">
+                                    <div className="col-span-2 space-y-1">
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase">演出藝人 / 團體</label>
+                                        <input required className="form-input" value={formData.artist} onChange={e=>setFormData({...formData, artist:e.target.value})} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase">日期</label>
+                                        <input required type="date" className="form-input" value={formData.date} onChange={e=>setFormData({...formData, date:e.target.value})} />
+                                    </div>
+                                    <div className="space-y-1">
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase">場館</label>
+                                        <input className="form-input" value={formData.venue} onChange={e=>setFormData({...formData, venue:e.target.value})} />
+                                    </div>
+                                    <div className="col-span-2 space-y-1">
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase">海報圖片 URL</label>
+                                        <input className="form-input" value={formData.imageUrl} onChange={e=>setFormData({...formData, imageUrl:e.target.value})} />
+                                    </div>
+                                    <button className="col-span-2 bg-[#00e054] text-[#14181c] font-black py-3 rounded uppercase tracking-widest text-xs mt-4 hover:bg-[#00c04a] transition-all">儲存演唱會紀錄</button>
+                                </form>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* 詳情頁面 */}
+                    {selectedConcert && (
+                        <div className="fixed inset-0 bg-[#14181c] z-50 overflow-y-auto p-6 md:p-20 animate-in">
+                            <button onClick={() => setSelectedConcert(null)} className="fixed top-8 right-8 text-3xl text-gray-500 hover:text-white transition-colors">✕</button>
+                            <div className="max-w-4xl mx-auto flex flex-col md:flex-row gap-12">
+                                <div className="w-full md:w-1/3">
+                                    <div className="aspect-[2/3] rounded-lg overflow-hidden shadow-2xl border border-white/10">
+                                        {selectedConcert.imageUrl ? <img src={selectedConcert.imageUrl} className="w-full h-full object-cover" /> : <div className="w-full h-full bg-[#2c3440] flex items-center justify-center uppercase font-bold">No Poster</div>}
+                                    </div>
+                                    {selectedConcert.date >= today && (
+                                        <button 
+                                            onClick={() => handleToggleStatus(selectedConcert)}
+                                            className={`w-full mt-6 py-3 rounded font-black text-[10px] uppercase tracking-widest transition-all ${selectedConcert.status === 'pending' ? 'bg-amber-500 text-[#14181c]' : 'bg-blue-600 text-white'}`}
+                                        >
+                                            {selectedConcert.status === 'pending' ? '目前搶票中 (點擊改為已購票)' : '已購票成功 (點擊改為搶票中)'}
+                                        </button>
+                                    )}
+                                    <button onClick={() => handleDelete(selectedConcert.id)} className="w-full mt-3 py-2 border border-red-500/30 text-red-500 rounded text-[10px] font-bold uppercase tracking-widest hover:bg-red-500 hover:text-white transition-all">刪除此場紀錄</button>
+                                </div>
+                                <div className="flex-1 space-y-8">
+                                    <div className="space-y-2">
+                                        <p className="text-gray-500 font-bold uppercase tracking-widest text-sm">{selectedConcert.date}</p>
+                                        <h1 className="text-5xl md:text-7xl font-black text-white uppercase tracking-tighter leading-none">{selectedConcert.artist}</h1>
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-8 border-y border-white/10 py-8">
+                                        <div><p className="text-[10px] text-gray-500 font-bold uppercase mb-1">Venue</p><p className="text-2xl text-white font-black">{selectedConcert.venue || '未標註場館'}</p></div>
+                                        <div><p className="text-[10px] text-gray-500 font-bold uppercase mb-1">Status</p><p className={`text-2xl font-black ${selectedConcert.date >= today ? 'text-blue-500' : 'text-[#00e054]'}`}>{selectedConcert.date >= today ? 'UPCOMING' : 'COMPLETED'}</p></div>
+                                    </div>
+                                    <div className="bg-[#1b2228] p-8 rounded-lg border border-white/5">
+                                        <h4 className="text-[#00e054] font-black mb-6 uppercase text-xs tracking-[0.2em] flex items-center gap-2">
+                                            <Icon name="list-music" size={14} /> Setlist 曲目表
+                                        </h4>
+                                        <div className="text-gray-400 font-mono text-sm whitespace-pre-wrap leading-relaxed">
+                                            {selectedConcert.setlist || '尚無歌單紀錄資訊。'}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            );
+        };
+
+        const root = ReactDOM.createRoot(document.getElementById('root'));
+        root.render(<App />);
+
+        // 頁面加載後初始化 Lucide 圖示
+        window.addEventListener('load', () => lucide.createIcons());
+    </script>
+</body>
 </html>
